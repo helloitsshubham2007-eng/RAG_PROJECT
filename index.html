@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Marginal — Ask your documents</title>
+<style>
+  :root{
+    --ink:#16211c;
+    --ink-soft:#26362e;
+    --paper:#e7e5da;
+    --paper-line:#c9c6b6;
+    --brass:#b8863b;
+    --teal:#3e6259;
+    --danger:#a5432f;
+    --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+    --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; height:100vh; display:flex;
+    background:var(--ink); color:var(--paper);
+    font-family:var(--font-display);
+  }
+  ::selection{ background:var(--brass); color:var(--ink); }
+
+  /* ---------- Sidebar ---------- */
+  #sidebar{
+    width:300px; min-width:300px; background:var(--ink);
+    border-right:1px solid var(--ink-soft);
+    display:flex; flex-direction:column;
+    padding:28px 22px;
+  }
+  #sidebar h1{
+    font-size:22px; font-weight:600; margin:0 0 2px 0; letter-spacing:0.01em;
+  }
+  #sidebar .tagline{
+    font-family:var(--font-mono); font-size:11px; color:var(--brass);
+    text-transform:uppercase; letter-spacing:0.12em; margin-bottom:28px;
+  }
+  .upload-zone{
+    border:1px dashed var(--ink-soft); border-radius:2px;
+    padding:18px; text-align:center; cursor:pointer;
+    font-family:var(--font-mono); font-size:12px; color:#9aa89f;
+    transition:border-color .15s, color .15s;
+    margin-bottom:22px;
+  }
+  .upload-zone:hover, .upload-zone.dragover{ border-color:var(--brass); color:var(--brass); }
+  #fileInput{ display:none; }
+
+  #docList{ flex:1; overflow-y:auto; }
+  .doc-eyebrow{
+    font-family:var(--font-mono); font-size:10px; letter-spacing:0.12em;
+    text-transform:uppercase; color:#6d7d73; margin-bottom:10px;
+  }
+  .doc-item{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:9px 0; border-bottom:1px solid var(--ink-soft);
+    font-size:13px; color:var(--paper);
+  }
+  .doc-item .name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:190px; }
+  .doc-item .chunks{ font-family:var(--font-mono); font-size:10px; color:#6d7d73; }
+  .doc-item .del{
+    background:none; border:none; color:#6d7d73; cursor:pointer; font-size:14px;
+    padding:0 0 0 8px;
+  }
+  .doc-item .del:hover{ color:var(--danger); }
+  .empty-note{ font-size:12px; color:#5c6a61; font-style:italic; }
+
+  #status{
+    font-family:var(--font-mono); font-size:10px; color:#5c6a61;
+    padding-top:14px; border-top:1px solid var(--ink-soft);
+  }
+
+  /* ---------- Main ---------- */
+  #main{ flex:1; display:flex; flex-direction:column; background:var(--paper); color:var(--ink); }
+  #chatArea{ flex:1; overflow-y:auto; padding:40px 60px; }
+  .msg{ max-width:680px; margin:0 auto 28px auto; }
+  .msg.user{ text-align:right; }
+  .msg.user .bubble{
+    display:inline-block; background:var(--ink); color:var(--paper);
+    padding:12px 18px; border-radius:2px; font-size:15px; text-align:left;
+  }
+  .msg.assistant .bubble{
+    font-size:16px; line-height:1.65;
+  }
+  .msg.assistant .bubble sup{
+    font-family:var(--font-mono); color:var(--brass); font-weight:600; cursor:pointer;
+    margin-left:1px;
+  }
+  .sources{ margin-top:14px; border-top:1px solid var(--paper-line); padding-top:12px; }
+  .source-chip{
+    font-family:var(--font-mono); font-size:11px; color:var(--teal);
+    display:block; margin-bottom:8px; line-height:1.5;
+  }
+  .source-chip b{ color:var(--ink); }
+  .welcome{
+    max-width:640px; margin:12vh auto 0 auto; text-align:center; color:#5c6a61;
+  }
+  .welcome h2{ font-size:26px; color:var(--ink); margin-bottom:8px; }
+
+  #inputBar{
+    border-top:1px solid var(--paper-line); padding:18px 60px 26px 60px;
+  }
+  #inputForm{
+    max-width:680px; margin:0 auto; display:flex; gap:10px;
+  }
+  #queryInput{
+    flex:1; font-family:var(--font-display); font-size:15px;
+    padding:13px 16px; border:1px solid var(--ink); border-radius:2px;
+    background:#fff; color:var(--ink); outline:none;
+  }
+  #queryInput:focus{ border-color:var(--brass); }
+  #sendBtn{
+    font-family:var(--font-mono); font-size:12px; letter-spacing:0.08em;
+    text-transform:uppercase; background:var(--ink); color:var(--paper);
+    border:none; padding:0 22px; border-radius:2px; cursor:pointer;
+  }
+  #sendBtn:hover{ background:var(--teal); }
+  #sendBtn:disabled{ opacity:0.5; cursor:default; }
+
+  .loading-dots span{ animation: blink 1.2s infinite; }
+  .loading-dots span:nth-child(2){ animation-delay:0.2s; }
+  .loading-dots span:nth-child(3){ animation-delay:0.4s; }
+  @keyframes blink{ 0%,80%,100%{opacity:0.2;} 40%{opacity:1;} }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1>Marginal</h1>
+  <div class="tagline">Ask your documents</div>
+
+  <label class="upload-zone" id="dropZone">
+    Drop a PDF, DOCX, TXT or MD here<br>or click to browse
+    <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md">
+  </label>
+
+  <div class="doc-eyebrow">Indexed documents</div>
+  <div id="docList"><div class="empty-note">Nothing uploaded yet.</div></div>
+
+  <div id="status">connecting…</div>
+</div>
+
+<div id="main">
+  <div id="chatArea">
+    <div class="welcome" id="welcome">
+      <h2>Ask a question, get a cited answer.</h2>
+      <p>Upload a document on the left, then ask anything about it.<br>
+      Every claim in the answer is footnoted back to the exact passage it came from.</p>
+    </div>
+  </div>
+
+  <div id="inputBar">
+    <form id="inputForm">
+      <input type="text" id="queryInput" placeholder="What does the document say about…" autocomplete="off">
+      <button id="sendBtn" type="submit">Ask</button>
+    </form>
+  </div>
+</div>
+
+<script>
+const chatArea = document.getElementById('chatArea');
+const docList = document.getElementById('docList');
+const statusEl = document.getElementById('status');
+const welcome = document.getElementById('welcome');
+
+async function refreshDocs(){
+  try{
+    const res = await fetch('/documents');
+    const data = await res.json();
+    if(data.documents.length === 0){
+      docList.innerHTML = '<div class="empty-note">Nothing uploaded yet.</div>';
+    } else {
+      docList.innerHTML = data.documents.map(d => `
+        <div class="doc-item">
+          <span class="name" title="${d.filename}">${d.filename}</span>
+          <span>
+            <span class="chunks">${d.chunks} chunks</span>
+            <button class="del" onclick="deleteDoc('${d.filename.replace(/'/g,"\\'")}')" title="Remove">✕</button>
+          </span>
+        </div>`).join('');
+    }
+    statusEl.textContent = `${data.documents.length} document(s) indexed`;
+  }catch(e){
+    statusEl.textContent = 'backend unreachable';
+  }
+}
+
+async function deleteDoc(filename){
+  await fetch(`/documents/${encodeURIComponent(filename)}`, {method:'DELETE'});
+  refreshDocs();
+}
+
+const fileInput = document.getElementById('fileInput');
+const dropZone = document.getElementById('dropZone');
+
+fileInput.addEventListener('change', () => { if(fileInput.files[0]) uploadFile(fileInput.files[0]); });
+['dragover','dragleave','drop'].forEach(evt => {
+  dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.toggle('dragover', evt==='dragover'); });
+});
+dropZone.addEventListener('drop', e => { if(e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]); });
+
+async function uploadFile(file){
+  statusEl.textContent = `indexing ${file.name}…`;
+  const form = new FormData();
+  form.append('file', file);
+  try{
+    const res = await fetch('/upload', {method:'POST', body:form});
+    const data = await res.json();
+    if(!res.ok){ statusEl.textContent = data.detail || 'upload failed'; return; }
+    refreshDocs();
+  }catch(e){
+    statusEl.textContent = 'upload failed';
+  }
+}
+
+const form = document.getElementById('inputForm');
+const input = document.getElementById('queryInput');
+const sendBtn = document.getElementById('sendBtn');
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  const query = input.value.trim();
+  if(!query) return;
+  welcome.style.display = 'none';
+
+  addMessage('user', query);
+  input.value = '';
+  sendBtn.disabled = true;
+
+  const loadingId = addMessage('assistant', '<span class="loading-dots"><span>·</span><span>·</span><span>·</span></span>');
+
+  try{
+    const res = await fetch('/chat', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({query})
+    });
+    const data = await res.json();
+    document.getElementById(loadingId).remove();
+    if(!res.ok){
+      addMessage('assistant', data.detail || 'Something went wrong.');
+    } else {
+      renderAnswer(data);
+    }
+  }catch(err){
+    document.getElementById(loadingId).remove();
+    addMessage('assistant', 'Could not reach the backend.');
+  }
+  sendBtn.disabled = false;
+});
+
+let msgCounter = 0;
+function addMessage(role, html){
+  const id = 'msg-' + (msgCounter++);
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.id = id;
+  div.innerHTML = `<div class="bubble">${html}</div>`;
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return id;
+}
+
+function renderAnswer(data){
+  // turn [1] [2] into superscript footnote markers
+  const answerHtml = data.answer.replace(/\[(\d+)\]/g, '<sup>[$1]</sup>');
+  let sourcesHtml = '';
+  if(data.sources && data.sources.length){
+    sourcesHtml = '<div class="sources">' + data.sources.map(s =>
+      `<span class="source-chip"><b>[${s.index}]</b> ${s.source} — section ${s.chunk_index} · relevance ${s.relevance}<br>“${s.excerpt}”</span>`
+    ).join('') + '</div>';
+  }
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  div.innerHTML = `<div class="bubble">${answerHtml}${sourcesHtml}</div>`;
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+refreshDocs();
+setInterval(refreshDocs, 15000);
+</script>
+
+</body>
+</html>
